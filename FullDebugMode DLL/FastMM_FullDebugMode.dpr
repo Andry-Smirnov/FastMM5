@@ -50,6 +50,8 @@ Change log:
  Version 1.64 (27 February 2021)
   - Implemented a return address information cache that greatly speeds up the conversion of many similar stack traces
     to text.
+ Version 1.65 (10 July 2023)
+  - Made LogStackTrace thread safe.
 
 }
 
@@ -709,6 +711,7 @@ end;
 
 var
   LReturnAddressInfoCache: TReturnAddressInfoCache;
+  LLogStackTrace_Locked: Integer; //0 = unlocked, 1 = locked
 
 function LogStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
 var
@@ -723,6 +726,11 @@ begin
   LLocationCacheInitialized := False;
 
   Result := ABuffer;
+
+  {This routine is protected by a lock - only one thread can be inside it at any given time.}
+  while AtomicCmpExchange(LLogStackTrace_Locked, 1, 0) <> 0 do
+    Winapi.Windows.SwitchToThread;
+
   try
     for LInd := 0 to AMaxDepth - 1 do
     begin
@@ -778,6 +786,8 @@ begin
       EndGetLocationInfoCache;
       {$endif}
     end;
+
+    LLogStackTrace_Locked := 0;
   end;
 end;
 {$endif}
@@ -902,4 +912,5 @@ begin
 {$ifdef JCLDebug}
   JclStackTrackingOptions := JclStackTrackingOptions + [stAllModules];
 {$endif}
+
 end.
